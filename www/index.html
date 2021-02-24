@@ -1,0 +1,759 @@
+<!doctype html>
+<html>
+
+<head>
+    <!-- Required meta tags -->
+    <meta charset="utf-8">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <meta name="viewport"
+        content="user-scalable=no, initial-scale=1, maximum-scale=1, minimum-scale=1, width=device-width, height=device-height">
+    <link rel="apple-touch-icon" href="icon.png">
+    <link rel="stylesheet" href="dark.css">
+    <link rel="manifest" href="manifest.json">
+    <title>44Reader</title>
+    <style>
+        html,
+        body {
+            overflow-x: hidden;
+            -webkit-user-select: none;
+            user-select: none;
+            -webkit-touch-callout: none;
+            cursor: inherit;
+        }
+
+        body {
+            background-color: black;
+            color: white;
+        }
+
+        .list {
+            border-radius: 6px;
+            background-color: var(--background);
+        }
+
+        .list-item {
+            padding: 0.5em;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .list-item:last-child {
+            border-bottom: 0px;
+        }
+
+        .list-item:hover {
+            background-color: var(--selection);
+        }
+
+        #reader {
+            position: absolute;
+            left: 0px;
+            top: 0px;
+        }
+
+        #bottom {
+            position: absolute;
+            left: 0px;
+            top: calc(100vh - 20px);
+            padding-left: 30px;
+            width: calc(100vw - 30px);
+            height: 20px;
+            background-color: transparent;
+            z-index: 2;
+        }
+
+        #menu {
+            z-index: 999;
+            background: rgba(10, 70, 130, 0.5);
+            position: absolute;
+            left: 0px;
+            top: 0px;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #menu button {
+            display: block;
+            width: 50vw;
+            margin-left: 25vw;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="main">
+        <div id="welcome">
+            <h1>44Reader</h1>
+            <b>Ver. 20210208</b>
+            <input id="txt-file" type="file" onchange="onFileChange()"
+                style="width: calc(100% - 22px); border: 1px solid;">
+        </div>
+        <div id="nav" hidden>
+            <button style="width: 40px;text-align: center;"
+                onclick="setBookListViewMode('main')">❮</button></button><input id="keyword"
+                style="display: inline;width: calc(100% - 40px - 26px);margin-right: 0px;" placeholder="Search...">
+        </div>
+        <div id="library" hidden>
+            <div id="today">
+                <b>Recommendations for Today</b>
+                <div id="today-list" class="list"></div>
+            </div>
+            <br>
+            <div id="main-list" class="list"></div>
+        </div>
+
+        <div id="recent">
+            <hr>
+            <b>Recent Books</b>
+            <div id="recent-list" class="list"></div>
+        </div>
+
+    </div>
+    <canvas id="reader" hidden></canvas>
+    <div onclick="setMenu(false)" id="menu" hidden>
+        <button onclick="setMenu(false)">❮</button>
+        <button onclick="txtViewer.gotoPercentUi()">Go to position...</button>
+        <button onclick="txtViewer.setFontSizeUi()">Set text size...</button>
+        <button onclick="txtViewer.ttsToggle()">🗣 Speak</button>
+        <button onclick="txtViewer.exit()">Close the book</button>
+    </div>
+    <div id="bottom" onclick="setMenu(true)" hidden>Hello</div>
+    <script src="localforage.js"></script>
+    <script src="decode.js"></script>
+    <script>
+        function $id(id) {
+            return document.getElementById(id)
+        }
+        var html = document.getElementsByTagName('html')[0]
+        var body = document.getElementsByTagName('body')[0]
+        var divMainList = $id('main-list')
+        var divTodayList = $id('today-list')
+
+        var TOC
+
+        var TXT
+        var txtInfo = {
+            hash: 0,
+            title: ''
+        }
+
+        var txtViewer
+
+        function setMenu(isShow) {
+            $id('menu').hidden = !isShow
+        }
+
+        function setBookListViewMode(mode) {
+            mode = mode || 'main'
+            if (mode == 'main') {
+                openBookTypeList()
+                $id('library').hidden = false
+                $id('welcome').hidden = true
+                $id('nav').hidden = false
+                $id('recent').hidden = false
+                $id('today').hidden = false
+            } else if (mode == 'detail') {
+                $id('today').hidden = true
+                $id('recent').hidden = true
+            }
+        }
+
+        function readFileSlice(file, offset, length, cb) {
+            var r = new FileReader()
+            r.onload = (e) => {
+                cb(e.target.result)
+            }
+            r.onerror = (e) => {
+                alert('read data failed: ' + e)
+                console.log(e)
+                debugger
+                location.reload()
+            }
+            r.readAsArrayBuffer(file.slice(offset, offset + length))
+        }
+
+        function xzDecompress(u8) {
+            return BrotliDecode(u8)
+        }
+
+        function openBookTypeList() {
+            var tl = TOC.tags
+            var data = [['[All Books]', 0]]
+            for (var i = 0; i < tl.length; i++) {
+                data.push([tl[i], 1 << i])
+            }
+            var list = new ListView(divMainList, new SimpleModel(data))
+            list.model.click = (item) => {
+                setBookListViewMode('detail')
+                var tag = item[1]
+                var books = []
+                for (var i = 0; i < TOC.totalBooks; i++) {
+                    if ((TOC.books_tags[i] & tag) == tag) {
+                        books.push(getBookListItem(i))
+                    }
+                }
+                var detailList = new ListView(divMainList, new SimpleModel(books))
+                detailList.model.click = handleBookItemClick
+            }
+        }
+
+        function getBookListItem(id) {
+            return [TOC.books_title[id], id]
+        }
+
+        function handleBookItemClick(line) {
+            var id = line[1]
+            var packID = TOC.books_packid[id]
+            var offset = TOC.books_offset[id]
+            var len = TOC.books_len[id]
+            var packOffset = TOC.packs[packID * 2]
+            var packLen = TOC.packs[packID * 2 + 1]
+            console.log(packID, offset, len, packOffset, packLen)
+            readFileSlice(currentFile, 32 + packOffset, packLen, (ab) => {
+                var u8 = new Uint8Array(ab)
+                var pack = xzDecompress(u8)
+                var txtBin = pack.subarray(offset, offset + len)
+                TXT = (new TextDecoder('utf-16le').decode(txtBin))
+                tryReflow()
+                txtInfo.title = TOC.books_title[id]
+                txtInfo.hash = TOC.books_hash[id]
+                if (!txtInfo.hash) {
+                    txtInfo.hash = simpleHash(TXT.substring(0, 5000))
+                }
+                openCurrentTxt()
+            })
+        }
+
+        function doSearch() {
+            var kw = '' + $id('keyword').value
+
+            var books = []
+            for (var i = 0; i < TOC.totalBooks; i++) {
+                if (TOC.books_title[i].indexOf(kw) >= 0) {
+                    books.push(getBookListItem(i))
+                    if (books.length > 1000) {
+                        break
+                    }
+                }
+            }
+            setBookListViewMode('detail')
+            var detailList = new ListView(divMainList, new SimpleModel(books))
+            detailList.model.click = handleBookItemClick
+        }
+
+
+        function prepareToday() {
+            var seed = Math.floor(Date.now() / 1000 / 1440 / 60)
+            var a = 1103515245
+            var c = 12345
+            var m = 2147483648
+            var data = []
+            for (var i = 0; i < 10; i++) {
+                data.push(getBookListItem(seed % TOC.totalBooks))
+                seed = (a * seed + c) % m;
+            }
+            var list = new ListView(divTodayList, new SimpleModel(data))
+            list.model.click = handleBookItemClick
+        }
+
+        var currentFile
+        function onFileChange() {
+            var input = $id('txt-file')
+            currentFile = input.files[0]
+            if (!currentFile) {
+                return
+            }
+            readFileSlice(currentFile, 0, 32, (buf) => {
+                var u32 = new Uint32Array(buf)
+                console.log(u32)
+                if (u32[0] != 0x44fb0001) {
+                    alert('invalid file')
+                    return
+                }
+                readFileSlice(currentFile, 32 + u32[1], u32[3], (buf) => {
+                    var u8 = new Uint8Array(buf)
+                    var json = (new TextDecoder('utf8')).decode(xzDecompress(u8))
+                    TOC = JSON.parse(json)
+                    TOC.totalBooks = TOC.books_title.length
+                    prepareToday()
+                    setBookListViewMode('main')
+                })
+            })
+        }
+        function onItemClick(e) {
+            var t = e.target
+            t._model.click(t._it)
+        }
+        function ListView(div, model) {
+            this.div = div
+            this.model = model
+            this.offset = 0
+            this.pageSize = 200
+            this.update = (offset) => {
+                var thisObj = this
+                this.offset = offset
+                var data = this.model.read(offset, this.pageSize)
+                var html = ''
+                this.div.innerHTML = ''
+                var model = this.model
+                if (offset > 0) {
+                    var el = document.createElement('div')
+                    el.className = 'list-item'
+                    el.innerText = '<<Prev Page'
+                    el.onclick = function () {
+                        var offset = thisObj.offset - thisObj.pageSize
+                        if (offset < 0) {
+                            offset = 0
+                        }
+                        thisObj.update(offset)
+                    }
+                    this.div.appendChild(el)
+                }
+                for (var i = 0; i < data.length; i++) {
+                    var it = data[i]
+                    var el = document.createElement('div')
+                    el.className = 'list-item'
+                    el.innerText = it[0]
+                    this.div.appendChild(el)
+                    el._model = model
+                    el._it = it
+                    el.onclick = onItemClick
+                }
+                if (data.length >= this.pageSize) {
+                    var el = document.createElement('div')
+                    el.className = 'list-item'
+                    el.innerText = 'Next Page>>'
+                    el.onclick = function () {
+                        var offset = thisObj.offset + thisObj.pageSize
+                        thisObj.update(offset)
+                    }
+                    this.div.appendChild(el)
+                }
+                window.scrollTo(0, 0)
+            }
+            this.update(0)
+        }
+
+        function SimpleModel(data) {
+            this.data = data
+
+            this.read = (offset, len) => {
+                console.log(offset, len)
+                return this.data.slice(offset, offset + len)
+            }
+            this.click = function (item) {
+                alert(item)
+            }
+        }
+
+
+
+
+
+        function tryReflow() {
+            var arr = TXT.substring(0, 10000).split('\n')
+            var longLineCnt = 0
+            for (var i = 0; i < arr.length; i++) {
+                if (arr[i].length > 60) {
+                    longLineCnt++
+                }
+            }
+            if (longLineCnt >= 3) {
+                return
+            }
+            console.log('Try reflow!!!')
+            arr = TXT.split('\n')
+            var ret = ''
+            for (var i = 0; i < arr.length; i++) {
+                var a = arr[i]
+                if ((a[0] == ' ') || (a[0] == '　')) {
+                    ret += '\n'
+                }
+                ret += a
+                var at = a.trim()
+                if (at.length == 0) {
+                    ret += '\n'
+                }
+            }
+            TXT = ret
+        }
+
+
+        function TXTViewer(canvas, divBottom) {
+            this.scaleFactor = 2
+            this.fontSize = parseInt(localStorage['fontSize']) || 48
+            this.padding = 8
+            this.pos = 0
+            this.nextPos = 0
+            this.enabled = false
+            this.margin = [20, 20, 20, 20]
+            this.canvas = canvas
+            this.cctx = canvas.getContext('2d')
+            this.approxLines = 0
+            this.approxCharsPerLine = 0
+            this.history = []
+            this.divBottom = divBottom
+            this.width = 0
+            this.height = 0
+            this.background = 'rgb(240,230,200)'
+            this.foreground = 'black'
+            this.utter = null
+            this.ttsNextPos = 0
+            this.ttsCurrentPos = 0
+            this.ttsIsFirst = true
+            this.ttsRelocTimeout = -1
+
+            var thisObj = this
+
+            canvas.ontouchstart = function (e) {
+                e.preventDefault()
+                if (e.touches.length == 1) {
+                    var tv = e.touches[0]
+                    var height = window.innerHeight
+                    var y = tv.clientY
+                    if (y > height * 0.5) {
+                        if (y < height * 0.9) {
+                            thisObj.nextPage()
+                        }
+                    } else if (y > height * 0.1) {
+                        thisObj.prevPage()
+                    } else {
+                        setMenu(true)
+                    }
+                }
+            }
+
+            this.setFont = (font, fontSize) => {
+                var newFontSize = fontSize || this.fontSize
+                this.fontSize = fontSize
+                this.reset()
+            }
+
+            this.reset = () => {
+                console.log('reset reader canvas!')
+                this.width = window.innerWidth
+                this.height = window.innerHeight
+                this.canvas.width = window.innerWidth * this.scaleFactor
+                this.canvas.height = window.innerHeight * this.scaleFactor
+                this.canvas.style = "width:" + window.innerWidth + "px;height:" + window.innerHeight + 'px;' + ';background:' + this.background + ';'
+                this.cctx.font = this.fontSize + 'px Courier'
+                this.cctx.fillStyle = this.foreground
+                this.divBottom.style = "color:" + this.foreground + ';'
+                this.approxCharsPerLine = Math.floor((this.canvas.width - this.margin[0] - this.margin[1]) / this.fontSize)
+                this.approxLines = Math.floor((this.canvas.height - this.margin[2] - this.margin[3] + this.padding) / (this.fontSize + this.padding))
+                this.render()
+            }
+
+            this.render = () => {
+
+                this.cctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
+                var x = this.margin[0]
+                var y = this.margin[2]
+                var w = this.canvas.width - x - this.margin[1]
+                var h = this.canvas.height - y - this.margin[3]
+                var pos = this.pos
+                var line = ''
+                var txtLen = TXT.length
+                while (pos <= TXT.length) {
+                    var needNewLine = false
+
+                    var ch = TXT[pos]
+                    if (ch == '\r') {
+                        pos++
+                        continue
+                    }
+
+                    if ((ch == '\n') || (this.cctx.measureText(line + ch).width >= w) || (pos == txtLen)) {
+                        // need draw a line
+                        if (ch == '\n') {
+                            pos++
+                        }
+                        this.cctx.fillText(line, x, y + this.fontSize)
+                        y += this.fontSize + this.padding
+                        line = ''
+                        if (y + this.fontSize >= h) {
+                            break
+                        }
+                        continue
+                    }
+                    line += ch
+                    pos++
+                }
+                this.nextPos = pos
+                var bottomBar = Math.floor(0.5 + (this.pos / TXT.length) * 100) + '%'
+                this.divBottom.innerText = bottomBar
+                localStorage['last'] = JSON.stringify([txtInfo.hash, this.pos])
+            }
+            this.start = (pos) => {
+                this.pos = pos || 0
+                this.history = []
+                body.style = 'touch-action: none;'
+                html.style = 'position: fixed;overflow:hidden;touch-action: none;'
+                $id('main').hidden = true
+                this.canvas.hidden = false
+                this.divBottom.hidden = false
+                this.reset()
+                this.enabled = true
+
+            }
+            this.exit = () => {
+                this.enabled = false
+                this.divBottom.hidden = true
+                this.canvas.hidden = true
+                $id('main').hidden = false
+                html.style = ''
+                body.style = ''
+                if (this.utter) {
+                    this.ttsToggle()
+                }
+            }
+            this.nextPage = () => {
+                if ((window.innerWidth != this.width) || (window.innerHeight != this.height)) {
+                    this.reset()
+                }
+                if (this.nextPos >= TXT.length) {
+                    return
+                }
+                this.history.push(this.pos)
+                this.pos = this.nextPos
+                this.render()
+                this.ttsUpdatePosByViewer()
+
+            }
+            this.prevPage = () => {
+                if (this.history.length > 0) {
+                    this.pos = this.history.pop()
+                } else {
+                    this.pos -= this.approxLines * this.approxCharsPerLine
+                }
+                if (this.pos < 0) {
+                    this.pos = 0
+                }
+                this.render()
+                this.ttsUpdatePosByViewer()
+            }
+            this.jumpToPos = (pos) => {
+                this.history = []
+                this.pos = pos
+                this.render()
+                this.ttsUpdatePosByViewer()
+            }
+            this.gotoPercentUi = () => {
+                var p = parseInt(prompt('Enter percentage(0~100): ', ''))
+                if (isNaN(p)) {
+                    return
+                }
+                if ((p < 0) || (p > 100)) {
+                    return
+                }
+                p = Math.floor(TXT.length * (p / 100))
+                this.jumpToPos(p)
+            }
+            this.setFontSizeUi = () => {
+                var p = parseInt(prompt('Set text size (10~100): ', this.fontSize))
+                if (isNaN(p)) {
+                    return;
+                }
+                if ((p < 10) || (p > 100)) {
+                    return;
+                }
+                localStorage['fontSize'] = p
+                this.fontSize = p
+                this.reset()
+            }
+            this.ttsToggle = () => {
+                var isSpeaking = this.utter ? true : false
+                if (isSpeaking) {
+                    speechSynthesis.cancel()
+                    this.utter = null
+                } else {
+                    this.ttsCurrentPos = -1
+                    this.utter = new SpeechSynthesisUtterance('好的，接下来让我为您朗读。在我朗读的期间，您可以随时上下翻动页面，我会从翻页的地方继续开始。在菜单中可以让我暂停下来。')
+                    this.utter.onboundary = (e) => {
+                        if (this.ttsCurrentPos >= 0) {
+                            var pos = this.ttsCurrentPos + e.charIndex - 1
+                            if (pos >= this.nextPos) {
+                                this.history.push(this.pos)
+                                this.pos = this.nextPos
+                                this.render()
+                            }
+                        }
+                    }
+                    this.ttsNextPos = this.pos
+                    this.utter.onend = () => {
+                        thisObj.ttsNext()
+                    }
+                    if (this.ttsIsFirst) {
+                        this.ttsIsFirst = false
+                        speechSynthesis.speak(this.utter)
+                    } else {
+                        this.ttsNext()
+                    }   
+                }
+            }
+            this.ttsUpdatePosByViewer = () => {
+                if (this.utter) {
+                    this.ttsNextPos = this.pos
+                    if (speechSynthesis.speaking) {
+                        this.ttsCurrentPos = -1
+                        speechSynthesis.cancel()
+                        clearTimeout(this.ttsRelocTimeout)
+                        this.ttsRelocTimeout = setTimeout(()=> {
+                            if (!speechSynthesis.speaking) {
+                                this.ttsNext()
+                            }
+                        }, 1000)
+                    } else {
+                        this.ttsNext()
+                    }
+
+                }
+            }
+            this.ttsNext = () => {
+                if (!this.utter) {
+                    return
+                }
+                var pos = this.ttsNextPos
+                if (pos >= TXT.length) {
+                    this.utter = null
+                    return
+                }
+                if (pos > this.nextPos) {
+                    this.history.push(this.pos)
+                    this.pos = pos
+                    this.render()
+                }
+                var nextPos = pos
+                var textToRead = ''
+                while ((nextPos < TXT.length) && (nextPos < pos + 1000)) {
+                    var ch = TXT[nextPos]
+                    textToRead += ch
+                    nextPos++
+                    if (ch == '\n') {
+                        if (textToRead.trim().length > 0) {
+                            break
+                        }
+                    }
+                }
+                this.ttsNextPos = nextPos
+                console.log('read', textToRead)
+                this.utter.text = textToRead
+                this.ttsCurrentPos = pos
+                speechSynthesis.speak(this.utter)
+            }
+        }
+
+        txtViewer = new TXTViewer($id('reader'), $id('bottom'))
+
+        if ($id('txt-file').files.length > 0) {
+            onFileChange()
+        }
+
+        function handleResize() {
+            if (txtViewer.enabled) {
+                txtViewer.reset()
+            }
+        }
+
+        window.onorientationchange = handleResize
+        window.onresize = handleResize
+
+        window.onkeydown = (e) => {
+            if (!txtViewer.enabled) {
+                return
+            }
+            var kc = e.keyCode
+            if ((kc == 33) || (kc == 38)) {
+                txtViewer.prevPage()
+            }
+            if ((kc == 34) || (kc == 40)) {
+                txtViewer.nextPage()
+            }
+            if (kc == 27) {
+                setMenu(true)
+            }
+        }
+
+        $id('keyword').onkeydown = (e) => {
+            if (e.keyCode == 13) {
+                e.preventDefault()
+                doSearch()
+            }
+        }
+
+        function simpleHash(s) {
+            var h = 0
+            for (var i = 0; i < s.length; i++) {
+                h <<= h & 3
+                if (h < 0) {
+                    h = -h
+                }
+                h ^= s.charCodeAt(i)
+            }
+            return h
+        }
+
+        function openCurrentTxt() {
+            localforage.getItem('progress-' + txtInfo.hash).then((prog) => {
+                txtViewer.start(parseInt(prog) || 0)
+            })
+            localforage.getItem('recent').then((recent) => {
+                recent = recent || []
+                var idxToReplace = -1
+                for (var i = 0; i < recent.length; i++) {
+                    if (recent[i][1] == txtInfo.hash) {
+                        idxToReplace = i
+                        break
+                    }
+                }
+                if (idxToReplace < 0) {
+                    if (recent.length >= 10) {
+                        var retire = recent.splice(recent.length - 1, 1)
+                        localforage.removeItem('data-' + retire[1])
+                    }
+                    localforage.setItem('data-' + txtInfo.hash, TXT)
+                } else {
+                    recent.splice(idxToReplace, 1)
+                }
+                recent.unshift([txtInfo.title, txtInfo.hash])
+                localforage.setItem('recent', recent)
+            })
+            txtViewer.start()
+        }
+
+        navigator.serviceWorker.addEventListener('message', event => {
+            console.log(event.data);
+            if (event.data.type == 'updated') {
+                alert('updated!')
+                location.reload()
+            }
+        });
+
+        localforage.ready().then(() => {
+            localforage.getItem('recent').then((recent) => {
+                recent = recent || []
+
+                var recentListView = new ListView($id('recent-list'), new SimpleModel(recent))
+                if (localStorage['last']) {
+                    var last = localStorage['last']
+                    last = JSON.parse(last)
+                    localforage.setItem('progress-' + last[0], last[1])
+                    delete localStorage['last']
+                }
+                recentListView.model.click = (item) => {
+                    txtInfo.title = item[0]
+                    txtInfo.hash = parseInt(item[1])
+                    localforage.getItem('data-' + item[1]).then((dat) => {
+                        TXT = dat
+                        openCurrentTxt()
+                    })
+                }
+            })
+        })
+
+
+    </script>
+    <script src="/sw-loader.js"></script>
+</body>
+
+</html>

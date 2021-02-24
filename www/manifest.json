@@ -1,0 +1,13 @@
+{
+    "name": "44Reader",
+    "short_name": "44Reader",
+    "start_url": ".",
+    "display": "fullscreen",
+    "background_color": "black",
+    "description": "44Reader",
+    "icons": [{
+      "src": "icon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }]
+  }
