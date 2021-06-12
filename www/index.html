@@ -84,7 +84,7 @@
     <div id="main">
         <div id="welcome">
             <h1>44Reader</h1>
-            <b>Ver. 20210208</b>
+            <b>Ver. 20210612</b>
             <input id="txt-file" type="file" onchange="onFileChange()"
                 style="width: calc(100% - 22px); border: 1px solid;">
         </div>
@@ -128,15 +128,10 @@
         var body = document.getElementsByTagName('body')[0]
         var divMainList = $id('main-list')
         var divTodayList = $id('today-list')
+        var textEnc = new TextEncoder()
+        var textDec = new TextDecoder()
 
         var TOC
-
-        var TXT
-        var txtInfo = {
-            hash: 0,
-            title: ''
-        }
-
         var txtViewer
 
         function setMenu(isShow) {
@@ -213,14 +208,15 @@
                 var u8 = new Uint8Array(ab)
                 var pack = xzDecompress(u8)
                 var txtBin = pack.subarray(offset, offset + len)
-                TXT = (new TextDecoder('utf-16le').decode(txtBin))
-                tryReflow()
+                var TXT = (new TextDecoder('utf-16le').decode(txtBin))
+                TXT = tryReflow(TXT)
+                var txtInfo = {}
                 txtInfo.title = TOC.books_title[id]
                 txtInfo.hash = TOC.books_hash[id]
                 if (!txtInfo.hash) {
-                    txtInfo.hash = simpleHash(TXT.substring(0, 5000))
+                    txtInfo.hash = strHash(TXT.substring(0, 5000))
                 }
-                openCurrentTxt()
+                openTxt(TXT, txtInfo)
             })
         }
 
@@ -241,6 +237,57 @@
             detailList.model.click = handleBookItemClick
         }
 
+        function murmurhash3_32_gc(key, seed) {
+            var remainder, bytes, h1, h1b, c1, c1b, c2, c2b, k1, i;
+
+            remainder = key.length & 3; // key.length % 4
+            bytes = key.length - remainder;
+            h1 = seed;
+            c1 = 0xcc9e2d51;
+            c2 = 0x1b873593;
+            i = 0;
+
+            while (i < bytes) {
+                k1 =
+                    ((key[i] & 0xff)) |
+                    ((key[++i] & 0xff) << 8) |
+                    ((key[++i] & 0xff) << 16) |
+                    ((key[++i] & 0xff) << 24);
+                ++i;
+
+                k1 = ((((k1 & 0xffff) * c1) + ((((k1 >>> 16) * c1) & 0xffff) << 16))) & 0xffffffff;
+                k1 = (k1 << 15) | (k1 >>> 17);
+                k1 = ((((k1 & 0xffff) * c2) + ((((k1 >>> 16) * c2) & 0xffff) << 16))) & 0xffffffff;
+
+                h1 ^= k1;
+                h1 = (h1 << 13) | (h1 >>> 19);
+                h1b = ((((h1 & 0xffff) * 5) + ((((h1 >>> 16) * 5) & 0xffff) << 16))) & 0xffffffff;
+                h1 = (((h1b & 0xffff) + 0x6b64) + ((((h1b >>> 16) + 0xe654) & 0xffff) << 16));
+            }
+
+            k1 = 0;
+
+            switch (remainder) {
+                case 3: k1 ^= (key[i + 2] & 0xff) << 16;
+                case 2: k1 ^= (key[i + 1] & 0xff) << 8;
+                case 1: k1 ^= (key[i] & 0xff);
+
+                    k1 = (((k1 & 0xffff) * c1) + ((((k1 >>> 16) * c1) & 0xffff) << 16)) & 0xffffffff;
+                    k1 = (k1 << 15) | (k1 >>> 17);
+                    k1 = (((k1 & 0xffff) * c2) + ((((k1 >>> 16) * c2) & 0xffff) << 16)) & 0xffffffff;
+                    h1 ^= k1;
+            }
+
+            h1 ^= key.length;
+
+            h1 ^= h1 >>> 16;
+            h1 = (((h1 & 0xffff) * 0x85ebca6b) + ((((h1 >>> 16) * 0x85ebca6b) & 0xffff) << 16)) & 0xffffffff;
+            h1 ^= h1 >>> 13;
+            h1 = ((((h1 & 0xffff) * 0xc2b2ae35) + ((((h1 >>> 16) * 0xc2b2ae35) & 0xffff) << 16))) & 0xffffffff;
+            h1 ^= h1 >>> 16;
+
+            return h1 >>> 0;
+        }
 
         function prepareToday() {
             var seed = Math.floor(Date.now() / 1000 / 1440 / 60)
@@ -261,6 +308,23 @@
             var input = $id('txt-file')
             currentFile = input.files[0]
             if (!currentFile) {
+                return
+            }
+            var fn = currentFile.name
+            if (fn.toLowerCase().endsWith('.txt')) {
+                if (currentFile.size >= 32 * 1024 * 1024) {
+                    alert('TXT file too large.')
+                    return
+                } else {
+                    readFileSlice(currentFile, 0, currentFile.size, (buf) => {
+                        var TXT = (new TextDecoder()).decode(buf) //assume utf-8 encoding
+                        var txtInfo = {
+                            title: fn,
+                            hash: strHash(TXT.substring(0, 5000))
+                        }
+                        openTxt(TXT, txtInfo)
+                    })
+                }
                 return
             }
             readFileSlice(currentFile, 0, 32, (buf) => {
@@ -350,7 +414,7 @@
 
 
 
-        function tryReflow() {
+        function tryReflow(TXT) {
             var arr = TXT.substring(0, 10000).split('\n')
             var longLineCnt = 0
             for (var i = 0; i < arr.length; i++) {
@@ -359,7 +423,7 @@
                 }
             }
             if (longLineCnt >= 3) {
-                return
+                return TXT
             }
             console.log('Try reflow!!!')
             arr = TXT.split('\n')
@@ -375,11 +439,16 @@
                     ret += '\n'
                 }
             }
-            TXT = ret
+            return ret
         }
 
 
         function TXTViewer(canvas, divBottom) {
+            this.TXT = ''
+            this.txtInfo = {
+                hash: 0,
+                title: ''
+            }
             this.scaleFactor = 2
             this.fontSize = parseInt(localStorage['fontSize']) || 48
             this.padding = 8
@@ -453,11 +522,11 @@
                 var h = this.canvas.height - y - this.margin[3]
                 var pos = this.pos
                 var line = ''
-                var txtLen = TXT.length
-                while (pos <= TXT.length) {
+                var txtLen = this.TXT.length
+                while (pos <= this.TXT.length) {
                     var needNewLine = false
 
-                    var ch = TXT[pos]
+                    var ch = this.TXT[pos]
                     if (ch == '\r') {
                         pos++
                         continue
@@ -480,9 +549,9 @@
                     pos++
                 }
                 this.nextPos = pos
-                var bottomBar = Math.floor(0.5 + (this.pos / TXT.length) * 100) + '%'
+                var bottomBar = Math.floor(0.5 + (this.pos / this.TXT.length) * 100) + '%'
                 this.divBottom.innerText = bottomBar
-                localStorage['last'] = JSON.stringify([txtInfo.hash, this.pos])
+                localStorage['last'] = JSON.stringify([this.txtInfo.hash, this.pos])
             }
             this.start = (pos) => {
                 this.pos = pos || 0
@@ -506,12 +575,14 @@
                 if (this.utter) {
                     this.ttsToggle()
                 }
+                processLastState()
+                updateRecents()
             }
             this.nextPage = () => {
                 if ((window.innerWidth != this.width) || (window.innerHeight != this.height)) {
                     this.reset()
                 }
-                if (this.nextPos >= TXT.length) {
+                if (this.nextPos >= this.TXT.length) {
                     return
                 }
                 this.history.push(this.pos)
@@ -546,7 +617,7 @@
                 if ((p < 0) || (p > 100)) {
                     return
                 }
-                p = Math.floor(TXT.length * (p / 100))
+                p = Math.floor(this.TXT.length * (p / 100))
                 this.jumpToPos(p)
             }
             this.setFontSizeUi = () => {
@@ -568,7 +639,7 @@
                     this.utter = null
                 } else {
                     this.ttsCurrentPos = -1
-                    this.utter = new SpeechSynthesisUtterance('好的，接下来让我为您朗读。在我朗读的期间，您可以随时上下翻动页面，我会从翻页的地方继续开始。在菜单中可以让我暂停下来。')
+                    this.utter = new SpeechSynthesisUtterance('你好。')
                     this.utter.onboundary = (e) => {
                         if (this.ttsCurrentPos >= 0) {
                             var pos = this.ttsCurrentPos + e.charIndex - 1
@@ -583,12 +654,7 @@
                     this.utter.onend = () => {
                         thisObj.ttsNext()
                     }
-                    if (this.ttsIsFirst) {
-                        this.ttsIsFirst = false
-                        speechSynthesis.speak(this.utter)
-                    } else {
-                        this.ttsNext()
-                    }   
+                    this.ttsNext()
                 }
             }
             this.ttsUpdatePosByViewer = () => {
@@ -598,7 +664,7 @@
                         this.ttsCurrentPos = -1
                         speechSynthesis.cancel()
                         clearTimeout(this.ttsRelocTimeout)
-                        this.ttsRelocTimeout = setTimeout(()=> {
+                        this.ttsRelocTimeout = setTimeout(() => {
                             if (!speechSynthesis.speaking) {
                                 this.ttsNext()
                             }
@@ -614,7 +680,7 @@
                     return
                 }
                 var pos = this.ttsNextPos
-                if (pos >= TXT.length) {
+                if (pos >= this.TXT.length) {
                     this.utter = null
                     return
                 }
@@ -625,8 +691,8 @@
                 }
                 var nextPos = pos
                 var textToRead = ''
-                while ((nextPos < TXT.length) && (nextPos < pos + 1000)) {
-                    var ch = TXT[nextPos]
+                while ((nextPos < this.TXT.length) && (nextPos < pos + 1000)) {
+                    var ch = this.TXT[nextPos]
                     textToRead += ch
                     nextPos++
                     if (ch == '\n') {
@@ -681,19 +747,40 @@
             }
         }
 
-        function simpleHash(s) {
-            var h = 0
-            for (var i = 0; i < s.length; i++) {
-                h <<= h & 3
-                if (h < 0) {
-                    h = -h
-                }
-                h ^= s.charCodeAt(i)
-            }
-            return h
+        function strHash(s) {
+            return murmurhash3_32_gc(textEnc.encode(s), 0)
         }
 
-        function openCurrentTxt() {
+        function processLastState() {
+            if (localStorage['last']) {
+                var last = localStorage['last']
+                last = JSON.parse(last)
+                localforage.setItem('progress-' + last[0], last[1])
+                delete localStorage['last']
+            }
+        }
+
+        function updateRecents() {
+            localforage.getItem('recent').then((recent) => {
+                recent = recent || []
+
+                var recentListView = new ListView($id('recent-list'), new SimpleModel(recent))
+                recentListView.model.click = (item) => {
+
+                    localforage.getItem('data-' + item[1]).then((dat) => {
+                        openTxt(dat, {
+                            title: item[0],
+                            hash: parseInt(item[1])
+                        })
+                    })
+                }
+            })
+        }
+
+        function openTxt(TXT, txtInfo) {
+            txtViewer.TXT = TXT
+            txtViewer.txtInfo = txtInfo
+
             localforage.getItem('progress-' + txtInfo.hash).then((prog) => {
                 txtViewer.start(parseInt(prog) || 0)
             })
@@ -729,29 +816,12 @@
             }
         });
 
+
+
         localforage.ready().then(() => {
-            localforage.getItem('recent').then((recent) => {
-                recent = recent || []
-
-                var recentListView = new ListView($id('recent-list'), new SimpleModel(recent))
-                if (localStorage['last']) {
-                    var last = localStorage['last']
-                    last = JSON.parse(last)
-                    localforage.setItem('progress-' + last[0], last[1])
-                    delete localStorage['last']
-                }
-                recentListView.model.click = (item) => {
-                    txtInfo.title = item[0]
-                    txtInfo.hash = parseInt(item[1])
-                    localforage.getItem('data-' + item[1]).then((dat) => {
-                        TXT = dat
-                        openCurrentTxt()
-                    })
-                }
-            })
+            processLastState()
+            updateRecents()
         })
-
-
     </script>
     <script src="/sw-loader.js"></script>
 </body>
