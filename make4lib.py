@@ -1,4 +1,8 @@
-NOVEL_PATH = 'I:\\'
+#pip(3) install -r requirements.txt
+#python(3) make4lib.py NOVEL_PATH
+import sys
+
+NOVEL_PATH = sys.argv[1]
 DRY_RUN = False
 
 import os
