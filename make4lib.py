@@ -4,6 +4,7 @@ import sys
 
 NOVEL_PATH = sys.argv[1]
 DRY_RUN = False
+MERGE_SMALL_FILES = False
 
 import os
 import codecs
@@ -164,6 +165,8 @@ outFile = open('out.4lib', 'wb')
 outFile.write(makeHeader(0, 0))
 
 def checkMergeFile(dirpath, txtFileList):
+    if not MERGE_SMALL_FILES:
+        return False
     largeCnt = 0
     smallCnt = 0
     for fn in txtFileList:
