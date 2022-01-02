@@ -1,0 +1,52 @@
+/*inspired by water.css*/
+:root {
+
+    --background: #ffffff;
+
+    --form-text: rgb(0, 0, 0);
+    --form-placeholder: rgb(92, 92, 92);
+    --active: #42a7ff;
+    --border: #000000;
+  }
+
+button {
+    color: black;
+    background-color: var(--background);
+    font-family: inherit;
+    font-size: inherit;
+    margin-right: 6px;
+    margin-bottom: 6px;
+    padding: 10px;
+    border: 2px solid var(--border);
+    border-radius: 6px;
+    outline: none;
+}
+
+button:hover {
+    background-color: var(--active);
+}
+
+input {
+    font-family: inherit;
+    font-size: inherit;
+    margin-right: 6px;
+    margin-bottom: 6px;
+    border: 2px solid var(--border);
+    border-radius: 6px;
+    padding: 10px;
+    color: var(--form-text);
+    background-color: var(--background);
+}
+
+::placeholder {
+    color: #474747;
+    color: var(--form-placeholder);
+}
+  
+
+body {
+    font-family: system-ui, -apple-system, sans-serif;
+    line-height: 1.4;
+    background-color: white;
+    color: black;
+}

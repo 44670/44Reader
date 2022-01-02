@@ -9,7 +9,7 @@
     <meta name="viewport"
         content="user-scalable=no, initial-scale=1, maximum-scale=1, minimum-scale=1, width=device-width, height=device-height">
     <link rel="apple-touch-icon" href="icon.png">
-    <link rel="stylesheet" href="dark.css">
+    <link rel="stylesheet" href="light.css">
     <link rel="manifest" href="manifest.json">
     <title>44Reader</title>
     <style>
@@ -22,14 +22,10 @@
             cursor: inherit;
         }
 
-        body {
-            background-color: black;
-            color: white;
-        }
-
         .list {
             border-radius: 6px;
-            background-color: var(--background);
+            border-color: black;
+            border: 2px solid;
         }
 
         .list-item {
@@ -42,7 +38,7 @@
         }
 
         .list-item:hover {
-            background-color: var(--selection);
+            background-color: var(--active);
         }
 
         #reader {
@@ -85,13 +81,13 @@
         <div id="welcome">
             <h1>44Reader</h1>
             <b>Ver. 20210612</b>
-            <input id="txt-file" type="file" onchange="onFileChange()"
-                style="width: calc(100% - 22px); border: 1px solid;">
+            <input id="txt-file" type="file" onchange="onFileChange()" hidden><br>
+            <button id="btn-file" onclick="$id('txt-file').click()" style="width: 100%;">Choose file...</button>
         </div>
         <div id="nav" hidden>
             <button style="width: 40px;text-align: center;"
                 onclick="setBookListViewMode('main')">❮</button></button><input id="keyword"
-                style="display: inline;width: calc(100% - 40px - 26px);margin-right: 0px;" placeholder="Search...">
+                style="display: inline;width: calc(100% - 40px - 30px);margin-right: 0px;" placeholder="Search...">
         </div>
         <div id="library" hidden>
             <div id="today">
@@ -108,6 +104,27 @@
             <div id="recent-list" class="list"></div>
         </div>
 
+        <div id="settings">
+            <hr>
+            <b>Settings</b>
+            <div id="settings-list" class="list">
+                <div class="list-item" onclick="txtViewer.setFontSizeUi()">
+                    Text size...
+                </div>
+                <div class="list-item" onclick="txtViewer.setPaddingUi()">
+                    Padding...
+                </div>
+                <div class="list-item">
+                    Style:
+                    <select id="style" onchange="txtViewer.setStyle(this.value)">
+                        <option value="default">yellow</option>
+                        <option value="light">light</option>
+                        <option value="dark">dark</option>
+                    </select> 
+                </div>
+            </div>
+        </div>
+
     </div>
     <canvas id="reader" hidden></canvas>
     <div onclick="setMenu(false)" id="menu" hidden>
@@ -118,6 +135,7 @@
         <button onclick="txtViewer.exit()">Close the book</button>
     </div>
     <div id="bottom" onclick="setMenu(true)" hidden>Hello</div>
+
     <script src="localforage.js"></script>
     <script src="decode.js"></script>
     <script>
@@ -449,9 +467,9 @@
                 hash: 0,
                 title: ''
             }
-            this.scaleFactor = 2
+            this.scaleFactor = 1
             this.fontSize = parseInt(localStorage['fontSize']) || 48
-            this.padding = 8
+            this.padding = parseInt(localStorage['padding']) || 10
             this.pos = 0
             this.nextPos = 0
             this.enabled = false
@@ -464,8 +482,8 @@
             this.divBottom = divBottom
             this.width = 0
             this.height = 0
-            this.background = 'rgb(240,230,200)'
-            this.foreground = 'black'
+            this.background = localStorage['bg'] || 'rgb(240,230,200)'
+            this.foreground = localStorage['fg'] || 'black'
             this.utter = null
             this.ttsNextPos = 0
             this.ttsCurrentPos = 0
@@ -500,6 +518,7 @@
 
             this.reset = () => {
                 console.log('reset reader canvas!')
+                this.scaleFactor = window.devicePixelRatio || 1
                 this.width = window.innerWidth
                 this.height = window.innerHeight
                 this.canvas.width = window.innerWidth * this.scaleFactor
@@ -632,6 +651,18 @@
                 this.fontSize = p
                 this.reset()
             }
+            this.setPaddingUi = () => {
+                var p = parseInt(prompt('Set padding (2~100): ', this.padding))
+                if (isNaN(p)) {
+                    return;
+                }
+                if ((p < 2) || (p > 100)) {
+                    return;
+                }
+                localStorage['padding'] = p
+                this.padding = p
+                this.reset()
+            }
             this.ttsToggle = () => {
                 var isSpeaking = this.utter ? true : false
                 if (isSpeaking) {
@@ -706,6 +737,25 @@
                 this.utter.text = textToRead
                 this.ttsCurrentPos = pos
                 speechSynthesis.speak(this.utter)
+            }
+
+            this.setStyle = (style) => {
+                style = style || 'default'
+                var bg = 'rgb(240,230,200)'
+                var fg = 'black'
+                if (style == 'dark') {
+                    bg = 'rgb(40,40,40)'
+                    fg = 'white'
+                } else if (style == 'light') {
+                    bg = 'white'
+                    fg = 'black'
+                }
+                this.background = bg
+                this.foreground = fg
+                localStorage['bg'] = bg
+                localStorage['fg'] = fg
+                localStorage['style'] = style
+                this.reset()
             }
         }
 
@@ -783,6 +833,9 @@
 
             localforage.getItem('progress-' + txtInfo.hash).then((prog) => {
                 txtViewer.start(parseInt(prog) || 0)
+            }).catch((err) => {
+                alert('Failed to load progress: ' + err)
+                txtViewer.start(0)
             })
             localforage.getItem('recent').then((recent) => {
                 recent = recent || []
@@ -805,7 +858,6 @@
                 recent.unshift([txtInfo.title, txtInfo.hash])
                 localforage.setItem('recent', recent)
             })
-            txtViewer.start()
         }
 
         navigator.serviceWorker.addEventListener('message', event => {
@@ -822,6 +874,15 @@
             processLastState()
             updateRecents()
         })
+
+
+        function uiInitSettings() {
+            var style = localStorage['style']
+            style = style || 'default'
+            $id('style').value = style
+        }
+
+        uiInitSettings()
     </script>
     <script src="/sw-loader.js"></script>
 </body>
