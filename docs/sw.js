@@ -1,4 +1,4 @@
-var CACHE_NAME = 'v20210102';
+var CACHE_NAME = 'v20220102';
 
 var urlsToCache = [
     '/favicon.ico',
