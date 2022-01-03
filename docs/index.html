@@ -11,8 +11,13 @@
     <link rel="apple-touch-icon" href="icon.png">
     <link rel="stylesheet" href="light.css">
     <link rel="manifest" href="manifest.json">
+
     <title>44Reader</title>
     <style>
+        @font-face {
+            font-family: 'SourceHanSerif';
+            src: url('fonts/SourceHanSerifSC-Regular.woff2') format('woff2');
+        }
         html,
         body {
             overflow-x: hidden;
@@ -111,16 +116,28 @@
                 <div class="list-item" onclick="txtViewer.setFontSizeUi()">
                     Text size...
                 </div>
+                <div class="list-item" onclick="txtViewer.setFontWeightUi()">
+                    Text weight...
+                </div>
+                <div class="list-item">
+                    Text font:
+                    <select id="font-name" onchange="txtViewer.setFontName(this.value)">
+                        <option value="courier">Default</option>
+                        <option value="SourceHanSerif">Source Han Serif</option>
+                    </select>
+                </div>
+
                 <div class="list-item" onclick="txtViewer.setPaddingUi()">
                     Padding...
                 </div>
+
                 <div class="list-item">
                     Style:
                     <select id="style" onchange="txtViewer.setStyle(this.value)">
                         <option value="default">yellow</option>
                         <option value="light">light</option>
                         <option value="dark">dark</option>
-                    </select> 
+                    </select>
                 </div>
             </div>
         </div>
@@ -468,6 +485,8 @@
                 title: ''
             }
             this.scaleFactor = 1
+            this.fontWeight = parseInt(localStorage['fontWeight']) || 400
+            this.fontName = localStorage['fontName'] || 'courier'
             this.fontSize = parseInt(localStorage['fontSize']) || 48
             this.padding = parseInt(localStorage['padding']) || 10
             this.pos = 0
@@ -510,12 +529,6 @@
                 }
             }
 
-            this.setFont = (font, fontSize) => {
-                var newFontSize = fontSize || this.fontSize
-                this.fontSize = fontSize
-                this.reset()
-            }
-
             this.reset = () => {
                 console.log('reset reader canvas!')
                 this.scaleFactor = window.devicePixelRatio || 1
@@ -523,8 +536,12 @@
                 this.height = window.innerHeight
                 this.canvas.width = window.innerWidth * this.scaleFactor
                 this.canvas.height = window.innerHeight * this.scaleFactor
-                this.canvas.style = "width:" + window.innerWidth + "px;height:" + window.innerHeight + 'px;' + ';background:' + this.background + ';'
-                this.cctx.font = this.fontSize + 'px Courier'
+                var canvasStyle = "width:" + window.innerWidth + "px;height:" +
+                    window.innerHeight + 'px;' + ';background:' +
+                    this.background + ';'
+                //canvasStyle += 'font-variation-settings: "wght" ' + this.fontWeight + ';'
+                this.cctx.font = this.fontWeight + ' ' + this.fontSize + 'px ' + this.fontName
+                this.canvas.style = canvasStyle
                 this.cctx.fillStyle = this.foreground
                 this.divBottom.style = "color:" + this.foreground + ';'
                 this.approxCharsPerLine = Math.floor((this.canvas.width - this.margin[0] - this.margin[1]) / this.fontSize)
@@ -663,6 +680,18 @@
                 this.padding = p
                 this.reset()
             }
+            this.setFontWeightUi = () => {
+                var p = parseInt(prompt('Set font weight (100~900): ', this.fontWeight))
+                if (isNaN(p)) {
+                    return;
+                }
+                if ((p < 100) || (p > 900)) {
+                    return;
+                }
+                localStorage['fontWeight'] = p
+                this.fontWeight = p
+                this.reset()
+            }
             this.ttsToggle = () => {
                 var isSpeaking = this.utter ? true : false
                 if (isSpeaking) {
@@ -755,6 +784,13 @@
                 localStorage['bg'] = bg
                 localStorage['fg'] = fg
                 localStorage['style'] = style
+                this.reset()
+            }
+
+            this.setFontName = (fontName) => {
+                fontName = fontName || 'courier'
+                localStorage['fontName'] = fontName
+                this.fontName = fontName
                 this.reset()
             }
         }
@@ -880,6 +916,9 @@
             var style = localStorage['style']
             style = style || 'default'
             $id('style').value = style
+            var fontName = localStorage['fontName']
+            fontName = fontName || 'courier'
+            $id('font-name').value = fontName
         }
 
         uiInitSettings()

@@ -1,4 +1,4 @@
-var CACHE_NAME = 'v20210322';
+var CACHE_NAME = 'v20210102';
 
 var urlsToCache = [
     '/favicon.ico',
@@ -9,6 +9,7 @@ var urlsToCache = [
     '/dark.css',
     '/icon.png',
 	'/manifest.json',
+    '/fonts/SourceHanSerifSC-Regular.woff2'
 ];
 
 self.addEventListener('install', function (event) {
