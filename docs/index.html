@@ -896,13 +896,6 @@
             })
         }
 
-        navigator.serviceWorker.addEventListener('message', event => {
-            console.log(event.data);
-            if (event.data.type == 'updated') {
-                alert('updated!')
-                location.reload()
-            }
-        });
 
 
 
@@ -922,6 +915,16 @@
         }
 
         uiInitSettings()
+
+        if (navigator.serviceWorker) {
+            navigator.serviceWorker.addEventListener('message', event => {
+                console.log(event.data);
+                if (event.data.type == 'updated') {
+                    alert('updated!')
+                    location.reload()
+                }
+            });
+        }
     </script>
     <script src="/sw-loader.js"></script>
 </body>
