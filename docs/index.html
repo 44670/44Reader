@@ -85,7 +85,7 @@
     <div id="main">
         <div id="welcome">
             <h1>44Reader</h1>
-            <b>Ver. 20210612</b>
+            <b>Ver. 20221216</b>
             <input id="txt-file" type="file" onchange="onFileChange()" hidden><br>
             <button id="btn-file" onclick="$id('txt-file').click()" style="width: 100%;">Choose file...</button>
         </div>
@@ -357,6 +357,7 @@
                             title: fn,
                             hash: strHash(TXT.substring(0, 5000))
                         }
+                        TXT = tryReflow(TXT)
                         openTxt(TXT, txtInfo)
                     })
                 }

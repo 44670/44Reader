@@ -1,12 +1,12 @@
-var CACHE_NAME = 'v20220102';
+var CACHE_NAME = 'v3';
 
-var urlsToCache = [
+var urlsToCache = [    
     '/favicon.ico',
 	'/sw-loader.js',
     '/',
     '/localforage.js',
     '/decode.js',
-    '/dark.css',
+    '/light.css',
     '/icon.png',
 	'/manifest.json',
     '/fonts/SourceHanSerifSC-Regular.woff2'
