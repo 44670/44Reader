@@ -1,11 +1,25 @@
 #pip(3) install -r requirements.txt
-#python(3) make4lib.py NOVEL_PATH
+# Pack: python(3) make4lib.py NOVEL_PATH
+import argparse
+argp = argparse.ArgumentParser()
+argp.add_argument('path', help='path to novel')
+argp.add_argument('-d', '--dry-run', help = 'dry run', action = 'store_true')
+argp.add_argument('-m', '--merge-small-files', help = 'merge small files', action = 'store_true')
+argp.add_argument('-u', '--unpack', help = 'unpack', action = 'store_true')
+argp.add_argument('-p', '--pack', help = 'pack', action = 'store_true')
+ARGS = argp.parse_args()
+logFile = open ('make4lib.log', 'w', encoding='utf8')
+
+def log(obj):
+    logFile.write(json.dumps(obj,ensure_ascii=False))
+    logFile.write('\n')
+
+
+NOVEL_PATH = ARGS.path
+DRY_RUN = ARGS.dry_run
+MERGE_SMALL_FILES = ARGS.merge_small_files
+
 import sys
-
-NOVEL_PATH = sys.argv[1]
-DRY_RUN = False
-MERGE_SMALL_FILES = False
-
 import os
 import codecs
 import hashlib
@@ -142,6 +156,9 @@ def handleFile(path, title, txtStr):
 def myCompress(b):
     return brotli.compress(b, quality=11, lgwin=24)
 
+def myDecompress(b):
+    return brotli.decompress(b)
+
 def commitBinPack():
     global txtBinPack, totalPackLen, txtBinPackCnt, allBinPack
     if len(txtBinPack) == 0:
@@ -161,9 +178,6 @@ def commitBinPack():
 def makeHeader(tocAddr, tocLen):
     return struct.pack('IIIIIIII', 0x44fb0001, tocAddr, 0, tocLen, 0, 0, 0, 0)
 
-outFile = open('out.4lib', 'wb')
-outFile.write(makeHeader(0, 0))
-
 def checkMergeFile(dirpath, txtFileList):
     if not MERGE_SMALL_FILES:
         return False
@@ -177,67 +191,102 @@ def checkMergeFile(dirpath, txtFileList):
             smallCnt += 1
     return smallCnt > largeCnt
 
-logFile = open ('make4lib.log', 'w', encoding='utf8')
 
-def log(obj):
-    logFile.write(json.dumps(obj,ensure_ascii=False))
-    logFile.write('\n')
 
-try:
-    for dirpath, dirnames, filenames in os.walk(NOVEL_PATH):
-        txtFileList = []
-        for fn in filenames:
-            fnLower = fn.lower()
-            if (not fnLower.endswith('.txt')) or (fnLower.startswith('.')):
-                #print('Skipping file: ' + fullPath)
+if ARGS.pack:
+    outFile = open('out.4lib', 'wb')
+    outFile.write(makeHeader(0, 0))
+
+    try:
+        for dirpath, dirnames, filenames in os.walk(NOVEL_PATH):
+            txtFileList = []
+            for fn in filenames:
+                fnLower = fn.lower()
+                if (not fnLower.endswith('.txt')) or (fnLower.startswith('.')):
+                    #print('Skipping file: ' + fullPath)
+                    continue
+                txtFileList.append(fn)
+            if len(txtFileList) <= 0:
                 continue
-            txtFileList.append(fn)
-        if len(txtFileList) <= 0:
-            continue
-        txtFileList.sort()
+            txtFileList.sort()
 
-        pathArr = dirpath[len(NOVEL_PATH):].replace('\\', '/').split('/')
-        if (len(txtFileList) > 1) and (len(dirnames) == 0) and (checkMergeFile(dirpath, txtFileList)):
-            title = pathArr[-1]
-            if len(pathArr) >= 3:
-                    title = pathArr[-2] + '/' + title
-            print('merge file', txtFileList)
-            log(['merge', title, txtFileList])
-            mergedStr = ''
-            for fn in txtFileList:
-                mergedStr += '\n\n\n==========\n' + fn[:-4] + '\n==========\n\n\n'
-                mergedStr += autoDecodeFile(dirpath + '/' + fn)
-            handleFile(dirpath, title, mergedStr)
-        else:
-            for fn in txtFileList:
-                title = fn[:-4]
-                if len(pathArr) >= 2:
-                    title = pathArr[-1] + '/' + title
-                handleFile(dirpath, title, autoDecodeFile(dirpath + '/' + fn))
-        
-except KeyboardInterrupt:
-    pass
+            pathArr = dirpath[len(NOVEL_PATH):].replace('\\', '/').split('/')
+            if (len(txtFileList) > 1) and (len(dirnames) == 0) and (checkMergeFile(dirpath, txtFileList)):
+                title = pathArr[-1]
+                if len(pathArr) >= 3:
+                        title = pathArr[-2] + '/' + title
+                print('merge file', txtFileList)
+                log(['merge', title, txtFileList])
+                mergedStr = ''
+                for fn in txtFileList:
+                    mergedStr += '\n\n\n==========\n' + fn[:-4] + '\n==========\n\n\n'
+                    mergedStr += autoDecodeFile(dirpath + '/' + fn)
+                handleFile(dirpath, title, mergedStr)
+            else:
+                for fn in txtFileList:
+                    title = fn[:-4]
+                    if len(pathArr) >= 2:
+                        title = pathArr[-1] + '/' + title
+                    handleFile(dirpath, title, autoDecodeFile(dirpath + '/' + fn))
+            
+    except KeyboardInterrupt:
+        pass
 
-commitBinPack()
-print(totalPackLen)
-toc = {
-    'packs': packs,
-    'books_title': books_title,
-    'books_packid': books_packid,
-    'books_offset':books_offset,
-    'books_len':books_len,
-    'books_tags':books_tags,
-    'books_hash':books_hash,
-    'tags': tags
-}
+    commitBinPack()
+    print(totalPackLen)
+    toc = {
+        'packs': packs,
+        'books_title': books_title,
+        'books_packid': books_packid,
+        'books_offset':books_offset,
+        'books_len':books_len,
+        'books_tags':books_tags,
+        'books_hash':books_hash,
+        'tags': tags
+    }
 
 
-tocData = myCompress(json.dumps(toc, ensure_ascii=False).encode('utf8'))
-outFile.write(tocData)
-outFile.seek(0, os.SEEK_SET)
-outFile.write(makeHeader(totalPackLen, len(tocData)))
-outFile.close()
+    tocData = myCompress(json.dumps(toc, ensure_ascii=False).encode('utf8'))
+    outFile.write(tocData)
+    outFile.seek(0, os.SEEK_SET)
+    outFile.write(makeHeader(totalPackLen, len(tocData)))
+    outFile.close()
+    with open('toc.json', 'w', encoding='utf8') as f:
+        json.dump(toc, f, ensure_ascii=False, indent=4)
+
+
+
+
+def doUnpack():
+    outDir = 'out'
+    os.makedirs(outDir, exist_ok=True)
+    inFile = open(ARGS.path, 'rb')
+    header = inFile.read(32)
+    (magic, tocAddr, _, tocLen, _, _, _, _) = struct.unpack('IIIIIIII', header)
+    if magic != 0x44fb0001:
+        print('Invalid file')
+        return
+    inFile.seek(tocAddr + 32)
+    toc = inFile.read(tocLen)
+    toc = myDecompress(toc).decode('utf8')
+    toc = json.loads(toc)
+    # Iter over packs
+    for i in range(0, len(toc['packs']), 2):
+        packId = i // 2
+        print('pack', packId)
+        inFile.seek(toc['packs'][i] + 32)
+        packData = myDecompress(inFile.read(toc['packs'][i+1]))
+        # Find books in this pack
+        for j in range(0, len(toc['books_packid'])):
+            if toc['books_packid'][j] == packId:
+                bookId = j
+                print('book', bookId, toc['books_title'][bookId])
+                fileName = '%06d' % bookId + '#' + (toc['books_title'][j].replace('/', '#').replace('\\', '#')) + '.txt'
+                with open(outDir + '/' + fileName, 'wb') as f:
+                    f.write(packData[toc['books_offset'][j]:toc['books_offset'][j]+toc['books_len'][j]])
+    outFile.close()
+
+if ARGS.unpack:
+    doUnpack()
+
 logFile.close()
-
-with open('toc.json', 'w', encoding='utf8') as f:
-    json.dump(toc, f, ensure_ascii=False, indent=4)

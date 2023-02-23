@@ -149,6 +149,7 @@
         <button onclick="txtViewer.gotoPercentUi()">Go to position...</button>
         <button onclick="txtViewer.setFontSizeUi()">Set text size...</button>
         <button onclick="txtViewer.ttsToggle()">🗣 Speak</button>
+        <button onclick="txtView.aiInsight()">🤖 AI Insight</button>
         <button onclick="txtViewer.exit()">Close the book</button>
     </div>
     <div id="bottom" onclick="setMenu(true)" hidden>Hello</div>
@@ -792,6 +793,25 @@
                 localStorage['fontName'] = fontName
                 this.fontName = fontName
                 this.reset()
+            }
+
+            this.aiInsight = async function() {
+                var currPos = this.nextPos
+                var prevPos = currPos - 1000
+                if (prevPos < 0) {
+                    prevPos = 0
+                }
+                var text = this.TXT.substring(prevPos, currPos)
+                var reqJson = JSON.stringify({
+                    text: text,
+                    from: this.txtInfo.title
+                })
+                var req = await fetch("https://c.44670.org/ins", {
+                    method: "POST",
+                    body: reqJson
+                })
+                var resp = await req.json()
+                alert(resp.answer)
             }
         }
 
